@@ -1,7 +1,7 @@
 {
- "updated_at": "2026-10-09 12:23",
+ "updated_at": "2026-10-09 13:43",
  "status": {
-  "taifex": "ok"
+  "taifex": "error: 期交所回傳錯誤訊息：日期時間錯誤"
  },
  "unit": "損益單位：萬元",
  "latest": {
@@ -874,6 +874,42 @@
     -83194
    ]
   ]
+ },
+ "identities": {
+  "foreign": {
+   "name": "外資",
+   "csv": "data/taifex_calc.csv",
+   "latest": {
+    "date": "2026/10/08",
+    "close": 49349,
+    "contract": "202610",
+    "net_oi": -83194,
+    "net_oi_change": -4093,
+    "settlement_day": false,
+    "reset": {
+     "cost": 46319.72,
+     "unrealized": -5040356.31,
+     "realized": -504718.16,
+     "total": -5545074.47
+    },
+    "continuous": {
+     "cost": 44491.19,
+     "unrealized": -8082810.97,
+     "realized": -10449189.01,
+     "total": -18531999.99
+    }
+   }
+  },
+  "trust": {
+   "name": "投信",
+   "csv": "data/taifex_calc_trust.csv",
+   "latest": null
+  },
+  "dealer": {
+   "name": "自營商",
+   "csv": "data/taifex_calc_dealer.csv",
+   "latest": null
+  }
  },
  "disclaimer": "數據僅供參考，不構成任何投資建議；資料來源：臺灣期貨交易所"
 }
