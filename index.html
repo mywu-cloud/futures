@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>外資持倉成本</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0b1220; --surface:#111a2e; --surface-2:#0d1526; --line:#1f2a44; --grid:#1a2440;
+    --text:#e5e7eb; --text-2:#cbd5e1; --muted:#94a3b8;
+    --up:#ef4444; --down:#22c55e;                         /* 台股慣例：紅漲綠跌 */
+    --s-close:#3987e5; --s-reset:#c98500; --s-cont:#199e70; /* 已驗證之深色類別色 */
+    --accent:#3987e5; --settle:#fbbf24;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif}
+  .wrap{max-width:1180px;margin:0 auto;padding:20px 16px 40px}
+  header{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+  h1{margin:0;font-size:22px;font-weight:700}
+  .sub{color:var(--muted);font-size:12px}
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:14px}
+  /* 篩選列 */
+  .filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .seg{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg button{background:transparent;color:var(--text-2);border:0;padding:6px 12px;font:inherit;cursor:pointer;border-right:1px solid var(--line)}
+  .seg button:last-child{border-right:0}
+  .seg button.on{background:var(--accent);color:#fff}
+  .seg button:hover:not(.on){background:var(--surface-2)}
+  .dates{display:flex;gap:6px;align-items:center;color:var(--muted)}
+  input[type=date]{background:var(--surface-2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:5px 8px;font:inherit;color-scheme:dark}
+  .count{color:var(--muted);font-size:12px;margin-left:auto}
+  /* KPI */
+  .kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px}
+  .kpi{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+  .kpi .l{color:var(--muted);font-size:12px}
+  .kpi .v{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:2px}
+  .kpi .d{font-size:12px;color:var(--text-2);font-variant-numeric:tabular-nums}
+  .up{color:var(--up)} .down{color:var(--down)}
+  /* 圖表 */
+  .ch-hd{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+  .ch-hd h2{margin:0;font-size:15px;font-weight:600}
+  .legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--text-2)}
+  .legend i{display:inline-block;width:16px;height:0;border-top:2px solid;vertical-align:middle;margin-right:6px}
+  .legend i.dash{border-top-style:dashed}
+  .legend i.box{width:10px;height:10px;border:0;border-radius:2px}
+  .chart{position:relative;height:340px}
+  .chart.sm{height:200px}
+  /* 表格 */
+  .tbl-hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:10px;flex-wrap:wrap}
+  .tbl-hd h2{margin:0;font-size:15px;font-weight:600}
+  .btn{background:var(--surface-2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 12px;font:inherit;cursor:pointer}
+  .btn:hover{border-color:var(--accent)}
+  .tbl-wrap{overflow:auto;max-height:560px;border:1px solid var(--line);border-radius:8px}
+  table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:13px}
+  th,td{padding:7px 10px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--grid)}
+  th{position:sticky;top:0;background:#16213a;color:var(--text-2);font-weight:600;z-index:1}
+  th:first-child,td:first-child{text-align:left;position:sticky;left:0;background:var(--surface)}
+  th:first-child{background:#16213a;z-index:2}
+  tbody tr:hover td{background:#16213a}
+  .tag{display:inline-block;font-size:11px;padding:0 6px;border-radius:4px;background:rgba(251,191,36,.15);color:var(--settle);margin-left:6px}
+  .ft{color:var(--muted);font-size:12px;line-height:1.7}
+  .err{color:#fbbf24}
+  @media (max-width:900px){.kpis{grid-template-columns:repeat(2,1fr)}.kpi:last-child{grid-column:span 2}}
+  @media (max-width:560px){.chart{height:260px}.count{margin-left:0;width:100%}.kpi .v{font-size:19px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>外資持倉成本</h1>
+      <div class="sub">台指期（TX）外資及陸資未平倉淨部位・臺灣期貨交易所資料自算</div>
+    </div>
+    <div class="sub" id="updated">載入中…</div>
+  </header>
+
+  <div class="panel filters">
+    <div class="seg" id="presets">
+      <button data-d="30" class="on">30天</button><button data-d="60">60天</button><button data-d="90">90天</button>
+      <button data-d="182">半年</button><button data-d="365">1年</button><button data-d="all">全部</button>
+    </div>
+    <div class="dates">
+      <input type="date" id="start" aria-label="開始日期"> ～ <input type="date" id="end" aria-label="結束日期">
+    </div>
+    <span class="count" id="count"></span>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="panel">
+    <div class="ch-hd">
+      <h2>持倉成本 vs 近月收盤</h2>
+      <div class="legend">
+        <span><i style="border-color:var(--s-close)"></i>近月收盤</span>
+        <span><i style="border-color:var(--s-reset)"></i>重置法成本</span>
+        <span><i class="dash" style="border-color:var(--s-cont)"></i>連續法成本</span>
+      </div>
+    </div>
+    <div class="chart"><canvas id="c1" aria-label="近月收盤與兩種持倉成本走勢"></canvas></div>
+  </div>
+
+  <div class="panel">
+    <div class="ch-hd">
+      <h2>未平倉淨口數日變動</h2>
+      <div class="legend">
+        <span><i class="box" style="background:var(--up)"></i>增加（偏多）</span>
+        <span><i class="box" style="background:var(--down)"></i>減少（偏空）</span>
+      </div>
+    </div>
+    <div class="chart sm"><canvas id="c2" aria-label="外資未平倉淨口數每日變動"></canvas></div>
+  </div>
+
+  <div class="panel">
+    <div class="tbl-hd">
+      <h2>資料表</h2>
+      <button class="btn" id="dl">下載 CSV</button>
+    </div>
+    <div class="tbl-wrap">
+      <table>
+        <thead><tr>
+          <th>日期</th><th>近月收盤</th><th>未平倉淨口數</th><th>淨口數變動</th>
+          <th>重置法成本</th><th>收盤距成本</th><th>未實現(億)</th><th>已實現(億)</th><th>總損益(億)</th>
+          <th>連續法成本</th><th>連續法總損益(億)</th>
+        </tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="ft">
+    <b>重置法</b>：與玩股網相同算法，每個結算日以近月（最高＋最低）÷2 重置成本，已實現每個合約月重新累計。
+    <b>連續法</b>：以每日成交均價做移動平均，不因結算重置。標示「結算」者為近月合約結算日。<br>
+    損益以億元顯示（每點 200 元）。資料來源：臺灣期貨交易所，每交易日 18:00 後更新。<br>
+    <span>本頁數據與計算結果僅供參考，不構成任何投資建議，投資人應自行判斷並承擔風險。</span>
+  </div>
+</div>
+
+<script>
+// 資料來源：同 repo 的 data/taifex_calc.csv（GitHub Pages），讀不到時改讀 raw.githubusercontent
+const SOURCES = ['data/taifex_calc.csv',
+  'https://raw.githubusercontent.com/mywu-cloud/futures/main/data/taifex_calc.csv'];
+const JSON_SRC = ['data/latest.json',
+  'https://raw.githubusercontent.com/mywu-cloud/futures/main/data/latest.json'];
+
+const $ = id => document.getElementById(id);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const fmt = (v, d = 0) => v == null || isNaN(v) ? '—' : Number(v).toLocaleString('zh-TW', {minimumFractionDigits: d, maximumFractionDigits: d});
+const sgn = v => v > 0 ? '+' : '';
+const cls = v => v > 0 ? 'up' : v < 0 ? 'down' : '';
+const yi = v => v == null ? null : v / 1e4;          // 萬元 → 億元
+const iso = d => d.replaceAll('/', '-');               // 2026/10/08 → 2026-10-08
+
+let ROWS = [], VIEW = [], c1, c2;
+
+async function fetchFirst(urls, as) {
+  for (const u of urls) {
+    try { const r = await fetch(u, {cache: 'no-store'}); if (r.ok) return as === 'json' ? r.json() : r.text(); } catch (e) {}
+  }
+  throw new Error('無法讀取 ' + urls.join(' / '));
+}
+
+function parseCSV(text) {
+  const lines = text.replace(/^﻿/, '').trim().split(/\r?\n/);
+  const h = lines[0].split(',');
+  const ix = k => h.indexOf(k);
+  const num = s => s === '' || s == null ? null : Number(s);
+  const I = {d: ix('日期'), close: ix('近月收盤'), oi: ix('未平倉淨口數'), chg: ix('淨口數變動'), st: ix('結算日'),
+    rc: ix('重置法成本'), ru: ix('重置法未實現(萬元)'), rr: ix('重置法已實現(萬元)'), rt: ix('重置法總損益(萬元)'),
+    cc: ix('連續法成本'), ct: ix('連續法總損益(萬元)')};
+  return lines.slice(1).map(l => {
+    const c = l.split(',');
+    return {date: iso(c[I.d]), close: num(c[I.close]), oi: num(c[I.oi]), chg: num(c[I.chg]), settle: c[I.st] === '1',
+      rc: num(c[I.rc]), ru: num(c[I.ru]), rr: num(c[I.rr]), rt: num(c[I.rt]), cc: num(c[I.cc]), ct: num(c[I.ct])};
+  }).filter(r => r.rc != null && r.close != null).sort((a, b) => a.date < b.date ? -1 : 1);
+}
+
+function addDays(isoDate, n) {
+  const d = new Date(isoDate + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+function setPreset(days) {
+  const last = ROWS[ROWS.length - 1].date, first = ROWS[0].date;
+  $('end').value = last;
+  $('start').value = days === 'all' ? first : (addDays(last, -(+days) + 1) < first ? first : addDays(last, -(+days) + 1));
+  document.querySelectorAll('#presets button').forEach(b => b.classList.toggle('on', b.dataset.d === String(days)));
+  apply();
+}
+
+function apply() {
+  let s = $('start').value, e = $('end').value;
+  if (s && e && s > e) { [s, e] = [e, s]; $('start').value = s; $('end').value = e; }
+  VIEW = ROWS.filter(r => (!s || r.date >= s) && (!e || r.date <= e));
+  $('count').textContent = VIEW.length ? `${VIEW[0].date} ～ ${VIEW[VIEW.length - 1].date}・${VIEW.length} 個交易日` : '此期間無資料';
+  renderKpis(); renderCharts(); renderTable();
+}
+
+function renderKpis() {
+  if (!VIEW.length) { $('kpis').innerHTML = ''; return; }
+  const L = VIEW[VIEW.length - 1], F = VIEW[0];
+  const gap = L.close - L.rc, dCost = L.rc - F.rc, dOi = L.oi - F.oi;
+  const tile = (l, v, d) => `<div class="kpi"><div class="l">${l}</div><div class="v">${v}</div><div class="d">${d}</div></div>`;
+  $('kpis').innerHTML =
+    tile('重置法成本（' + L.date.slice(5).replace('-', '/') + '）', fmt(L.rc, 2),
+      `期間變動 <span class="${cls(dCost)}">${sgn(dCost)}${fmt(dCost, 2)}</span>`) +
+    tile('近月收盤', fmt(L.close), `距成本 <span class="${cls(gap)}">${sgn(gap)}${fmt(gap)} 點</span>`) +
+    tile('未平倉淨口數', `<span class="${cls(L.oi)}">${L.oi < 0 ? '淨空 ' : '淨多 '}${fmt(Math.abs(L.oi))}</span>`,
+      `期間變動 <span class="${cls(dOi)}">${sgn(dOi)}${fmt(dOi)} 口</span>`) +
+    tile('未實現損益', `<span class="${cls(L.ru)}">${sgn(L.ru)}${fmt(yi(L.ru), 1)}</span>`, '億元（重置法）') +
+    tile('連續法成本', fmt(L.cc, 2), `總損益 <span class="${cls(L.ct)}">${sgn(L.ct)}${fmt(yi(L.ct), 1)}</span> 億`);
+}
+
+function baseOpts() {
+  const grid = css('--grid'), muted = css('--muted');
+  return {
+    responsive: true, maintainAspectRatio: false, animation: false,
+    interaction: {mode: 'index', intersect: false},
+    plugins: {legend: {display: false},
+      tooltip: {backgroundColor: '#0b1220', borderColor: '#334155', borderWidth: 1, titleColor: '#e5e7eb', bodyColor: '#cbd5e1',
+        padding: 10, boxPadding: 4, usePointStyle: true}},
+    scales: {
+      x: {grid: {display: false}, border: {color: grid}, ticks: {color: muted, maxRotation: 0, autoSkip: true, maxTicksLimit: 8,
+        callback(v) { const d = this.getLabelForValue(v); return d.slice(5).replace('-', '/'); }}},
+      y: {position: 'right', grid: {color: grid}, border: {display: false}, ticks: {color: muted, callback: v => fmt(v)}}
+    }
+  };
+}
+
+// 十字準線
+const crosshair = {id: 'crosshair', afterDraw(ch) {
+  const a = ch.tooltip?.getActiveElements?.(); if (!a || !a.length) return;
+  const x = a[0].element.x, {top, bottom} = ch.chartArea, ctx = ch.ctx;
+  ctx.save(); ctx.strokeStyle = 'rgba(148,163,184,.4)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, bottom); ctx.stroke(); ctx.restore();
+}};
+
+function renderCharts() {
+  const labels = VIEW.map(r => r.date);
+  const dense = VIEW.length > 60;
+  const settleR = VIEW.map(r => r.settle ? 5 : 0);
+  const o1 = baseOpts();
+  o1.plugins.tooltip.callbacks = {
+    title: it => { const r = VIEW[it[0].dataIndex]; return r.date.replaceAll('-', '/') + (r.settle ? '（結算日）' : ''); },
+    label: it => ` ${it.dataset.label}  ${fmt(it.raw, it.datasetIndex ? 2 : 0)}`,
+    afterBody: it => { const r = VIEW[it[0].dataIndex]; const g = r.close - r.rc; return [`收盤距重置法成本  ${sgn(g)}${fmt(g)} 點`]; }
+  };
+  const ds1 = [
+    {label: '近月收盤', data: VIEW.map(r => r.close), borderColor: css('--s-close'), backgroundColor: css('--s-close'),
+      borderWidth: 2, pointRadius: dense ? 0 : 2, pointHoverRadius: 5, tension: 0},
+    {label: '重置法成本', data: VIEW.map(r => r.rc), borderColor: css('--s-reset'), backgroundColor: css('--s-reset'),
+      borderWidth: 2, pointRadius: settleR, pointStyle: 'rectRot', pointBorderColor: css('--surface'), pointBorderWidth: 2,
+      pointHoverRadius: 5, stepped: false, tension: 0},
+    {label: '連續法成本', data: VIEW.map(r => r.cc), borderColor: css('--s-cont'), backgroundColor: css('--s-cont'),
+      borderWidth: 2, borderDash: [6, 4], pointRadius: 0, pointHoverRadius: 5, tension: 0}
+  ];
+  if (c1) { c1.data.labels = labels; c1.data.datasets = ds1; c1.options = o1; c1.update(); }
+  else c1 = new Chart($('c1'), {type: 'line', data: {labels, datasets: ds1}, options: o1, plugins: [crosshair]});
+
+  const o2 = baseOpts();
+  o2.plugins.tooltip.callbacks = {
+    title: it => VIEW[it[0].dataIndex].date.replaceAll('-', '/'),
+    label: it => { const r = VIEW[it.dataIndex]; return [` 日變動  ${sgn(r.chg)}${fmt(r.chg)} 口`, ` 淨口數  ${fmt(r.oi)} 口`]; }
+  };
+  o2.scales.y.ticks.callback = v => fmt(v);
+  const up = css('--up'), down = css('--down');
+  const ds2 = [{label: '淨口數變動', data: VIEW.map(r => r.chg),
+    backgroundColor: VIEW.map(r => r.chg >= 0 ? up : down), borderRadius: 4, borderSkipped: 'start',
+    barPercentage: .8, categoryPercentage: .9}];
+  if (c2) { c2.data.labels = labels; c2.data.datasets = ds2; c2.options = o2; c2.update(); }
+  else c2 = new Chart($('c2'), {type: 'bar', data: {labels, datasets: ds2}, options: o2, plugins: [crosshair]});
+}
+
+function renderTable() {
+  const td = (v, d = 0, color = false, s = false) =>
+    `<td${color ? ` class="${cls(v)}"` : ''}>${s ? sgn(v) : ''}${fmt(v, d)}</td>`;
+  $('tbody').innerHTML = VIEW.slice().reverse().map(r => {
+    const g = r.close - r.rc;
+    return `<tr><td>${r.date.replaceAll('-', '/')}${r.settle ? '<span class="tag">結算</span>' : ''}</td>` +
+      td(r.close) + td(r.oi, 0, true) + td(r.chg, 0, true, true) + td(r.rc, 2) + td(g, 0, true, true) +
+      td(yi(r.ru), 1, true) + td(yi(r.rr), 1, true) + td(yi(r.rt), 1, true) + td(r.cc, 2) + td(yi(r.ct), 1, true) + '</tr>';
+  }).join('');
+}
+
+function downloadCSV() {
+  const head = ['日期', '結算日', '近月收盤', '未平倉淨口數', '淨口數變動', '重置法成本', '收盤距成本',
+    '重置法未實現(萬元)', '重置法已實現(萬元)', '重置法總損益(萬元)', '連續法成本', '連續法總損益(萬元)'];
+  const body = VIEW.map(r => [r.date, r.settle ? 1 : 0, r.close, r.oi, r.chg, r.rc, +(r.close - r.rc).toFixed(2),
+    r.ru, r.rr, r.rt, r.cc ?? '', r.ct ?? ''].join(','));
+  const blob = new Blob(['﻿' + [head.join(','), ...body].join('\n')], {type: 'text/csv'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `外資持倉成本_${$('start').value}_${$('end').value}.csv`;
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
+async function init() {
+  try {
+    ROWS = parseCSV(await fetchFirst(SOURCES, 'text'));
+    if (!ROWS.length) throw new Error('資料檔沒有可用資料');
+  } catch (e) {
+    $('updated').innerHTML = `<span class="err">資料載入失敗：${e.message}</span>`; return;
+  }
+  fetchFirst(JSON_SRC, 'json').then(j => {
+    $('updated').textContent = `資料日期 ${ROWS[ROWS.length - 1].date.replaceAll('-', '/')}・更新於 ${j.updated_at}`;
+  }).catch(() => { $('updated').textContent = `資料日期 ${ROWS[ROWS.length - 1].date.replaceAll('-', '/')}`; });
+  $('start').min = $('end').min = ROWS[0].date;
+  $('start').max = $('end').max = ROWS[ROWS.length - 1].date;
+  document.querySelectorAll('#presets button').forEach(b => b.onclick = () => setPreset(b.dataset.d));
+  for (const id of ['start', 'end']) $(id).onchange = () => {
+    document.querySelectorAll('#presets button').forEach(b => b.classList.remove('on')); apply();
+  };
+  $('dl').onclick = downloadCSV;
+  setPreset(30);   // 預設 30 天
+}
+init();
+</script>
+</body>
+</html>
