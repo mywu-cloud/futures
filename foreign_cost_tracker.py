@@ -219,10 +219,21 @@ def fetch_inst(s, e):
     raise RuntimeError(f"三大法人資料查詢持續回傳 DateTime error（{s} ~ {e}）")
 
 
+def month_end(d):
+    """期交所行情下載的查詢區間不得超過一個月（以日曆月計，例：2/6 起最多到 3/5），
+    因此以「下個月同日的前一天」再保守減一天作為每段結束日。"""
+    y, m = (d.year + (d.month == 12), d.month % 12 + 1)
+    for day in (d.day, 28):           # 下個月沒有同一天（如 1/31 → 2/31）時退回 28 日
+        try:
+            return datetime(y, m, day).date() - timedelta(days=2)
+        except ValueError:
+            continue
+
+
 def fetch_taifex(start, end):
     inst, price, s = {k: {} for k, *_ in IDENTITIES}, {}, start
     while s <= end:
-        e = min(s + timedelta(days=29), end)
+        e = min(month_end(s), end)
         a, b = s.strftime("%Y/%m/%d"), e.strftime("%Y/%m/%d")
         log(f"  期交所 {a} ~ {b}")
         for k, rows in fetch_inst(s, e).items():
