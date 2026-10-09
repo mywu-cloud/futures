@@ -136,9 +136,11 @@ def check_csv(text, first_col):
     rows = csv_rows(text)
     if rows and first_col in rows[0][0]:
         return rows
-    head = text[:300].lower()
-    if not text.strip() or "<html" in head or "<!doctype" in head or "查無" in text:
+    if not text.strip() or "查無" in text:
         return []
+    m = re.search(r'alert\("([^"]*)"\)', text)
+    if m:
+        raise ValueError(f"期交所回傳錯誤訊息：{m.group(1)}")
     raise ValueError(f"期交所回傳格式非預期：{text[:200]!r}")
 
 
@@ -193,14 +195,29 @@ def parse_taifex_price(text):
     return out
 
 
+def fetch_inst(s, e):
+    """三大法人查詢的結束日若晚於期交所最新公布日，會回傳 'DateTime error' 而非資料；
+    此時逐日往前縮短結束日重試（最多 10 天）。"""
+    for _ in range(11):
+        if e < s:
+            return {}
+        text = decode(http_post(TAIFEX_INST_URL, {"queryStartDate": s.strftime("%Y/%m/%d"),
+                                                  "queryEndDate": e.strftime("%Y/%m/%d"), "commodityId": "TXF"}))
+        if "DateTime error" not in text:
+            return parse_taifex_inst(text)
+        log(f"  {e:%Y/%m/%d} 尚無資料（DateTime error），結束日往前一天重試")
+        e -= timedelta(days=1)
+        time.sleep(1)
+    raise RuntimeError(f"三大法人資料查詢持續回傳 DateTime error（{s} ~ {e}）")
+
+
 def fetch_taifex(start, end):
     inst, price, s = {}, {}, start
     while s <= end:
         e = min(s + timedelta(days=29), end)
         a, b = s.strftime("%Y/%m/%d"), e.strftime("%Y/%m/%d")
         log(f"  期交所 {a} ~ {b}")
-        inst.update(parse_taifex_inst(decode(http_post(
-            TAIFEX_INST_URL, {"queryStartDate": a, "queryEndDate": b, "commodityId": "TXF"}))))
+        inst.update(fetch_inst(s, e))
         price.update(parse_taifex_price(decode(http_post(
             TAIFEX_PRICE_URL, {"down_type": "1", "commodity_id": "TX", "commodity_id2": "",
                                "queryStartDate": a, "queryEndDate": b}))))
