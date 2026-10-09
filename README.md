@@ -1,10 +1,10 @@
-# futures — 台指期外資持倉成本每日追蹤
+# futures — 台指期三大法人持倉成本每日追蹤
 
-每個交易日由 GitHub Actions 自動執行，以**臺灣期貨交易所官方資料**自算「台指期外資持倉成本」，兩種算法並列對照，寫回本 repo 的 `data/` 目錄。
+每個交易日由 GitHub Actions 自動執行，以**臺灣期貨交易所官方資料**自算「台指期外資、投信、自營商持倉成本」，兩種算法並列對照，寫回本 repo 的 `data/` 目錄。
 
 | 算法 | 說明 |
 |---|---|
-| 結算重置法 | 與玩股網「外資持倉成本」相同算法（2026/10/08 驗證：成本 46,319.72、未實現 −5,040,356.31 萬、已實現 −504,718.16 萬，完全一致）。每個結算日重置成本 |
+| 結算重置法 | 與玩股網「外資／投信／自營商持倉成本」相同算法（2026/10/08 驗證成本：外資 46,319.72、投信 45,992.57、自營商 49,214.38，損益亦完全一致）。每個結算日重置成本 |
 | 連續移動平均法 | 以每日成交均價做移動平均，不因結算重置，反映較長期的部位成本 |
 
 > 玩股網的成本是在瀏覽器端以 JavaScript 計算，伺服器回傳的頁面沒有數值，無法以一般 HTTP 抓取；本專案直接用期交所資料重算，因此可回補完整歷史，也不涉及轉載第三方加工資料。
@@ -19,10 +19,10 @@
 
 | 檔案 | 內容 |
 |---|---|
-| `taifex_raw.csv` | 期交所每日原始資料（外資淨部位、TX 近月高低收／結算價、次月收盤） |
-| `taifex_calc.csv` | 原始資料＋兩種自算持倉成本與損益 |
-| `futures_foreign_cost.xlsx` | Excel 報表：對照總表、期交所原始、走勢圖、說明（由 CSV 重建） |
-| `latest.json` | 最新一日摘要＋近 120 個交易日走勢（網站前端讀取） |
+| `taifex_raw.csv`／`_trust`／`_dealer` | 外資／投信／自營商 期交所每日原始資料（淨部位、TX 近月高低收／結算價、次月收盤） |
+| `taifex_calc.csv`／`_trust`／`_dealer` | 原始資料＋兩種自算持倉成本與損益 |
+| `futures_foreign_cost.xlsx` | Excel 報表：三法人對照表、走勢圖、原始資料、說明（由 CSV 重建） |
+| `latest.json` | 外資最新摘要＋近 120 日走勢（`latest`／`history`，相容舊版）；三法人摘要（`identities`） |
 
 網站前端讀取（repo 為 public 時）：
 
@@ -47,6 +47,10 @@ https://raw.githubusercontent.com/mywu-cloud/futures/main/data/latest.json
 ```
 
 損益單位為萬元。（`continuous` 的數值取決於回補起始日，此處僅示意格式。）
+
+## 網站頁面 `index.html`
+
+外資／投信／自營商分頁切換（網址 `?id=foreign|trust|dealer`），預設顯示近 30 天，可選 30天／60天／90天／半年／1年／全部或自訂日期；含重點數字、成本 vs 收盤走勢、淨口數日變動、資料表與 CSV 下載。淺色／深色／自動主題，桌機、平板、手機自動切換版面。啟用 GitHub Pages 後可直接以 `https://mywu-cloud.github.io/futures/` 瀏覽。
 
 ## 網站卡片
 
@@ -81,7 +85,7 @@ python foreign_cost_tracker.py                       # 每日例行
 | 參數 | 說明 |
 |---|---|
 | `--data-dir` | 資料輸出目錄，預設 `data/` |
-| `--backfill-days` | 首次執行（無 `taifex_raw.csv`）時回補天數，預設 365 |
+| `--backfill-days` | 某法人尚無資料檔時的回補天數，預設 730 |
 | `--rebuild` | 資料未變動也強制重建 xlsx / json |
 
 ## Repo 結構
@@ -90,7 +94,8 @@ python foreign_cost_tracker.py                       # 每日例行
 futures/
 ├── .github/workflows/daily.yml   # 每日排程
 ├── data/                         # 自動產生的資料檔
-├── web/foreign-cost-card.html    # 網站嵌入卡片
+├── index.html                    # 三法人持倉成本頁面
+├── web/foreign-cost-card.html    # 網站嵌入卡片（外資）
 ├── foreign_cost_tracker.py       # 主程式
 ├── requirements.txt
 ├── .gitattributes

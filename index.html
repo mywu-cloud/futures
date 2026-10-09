@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
-<title>外資持倉成本</title>
+<title>三大法人持倉成本</title>
 <script>
   // 先套用主題，避免載入時閃爍（auto＝跟隨系統）
   (function () {
@@ -71,6 +71,14 @@
   .seg button:hover:not(.on){background:var(--surface-2)}
   .seg button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
   .theme .seg button{padding:4px 10px;font-size:12px;min-height:28px}
+
+  /* 法人分頁 */
+  .tabs{display:flex;gap:4px;margin-bottom:12px;border-bottom:1px solid var(--line)}
+  .tabs button{background:transparent;border:0;border-bottom:3px solid transparent;color:var(--muted);font:inherit;font-size:15px;font-weight:600;
+    padding:8px 16px;cursor:pointer;margin-bottom:-1px;min-height:40px}
+  .tabs button:hover{color:var(--text)}
+  .tabs button[aria-selected="true"]{color:var(--text);border-bottom-color:var(--accent)}
+  .tabs button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 
   /* 篩選列 */
   .filters{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
@@ -145,6 +153,7 @@
     .dates{width:100%}
     .dates input{flex:1;min-width:0}
     .kpis{grid-template-columns:repeat(2,1fr);gap:8px}
+    .tabs button{flex:1;padding:8px 6px}
     .kpi{padding:10px 12px}
     .kpi .v{font-size:19px}
     .kpi,.kpi:nth-child(n+4){grid-column:auto}
@@ -161,8 +170,8 @@
 <div class="wrap">
   <header>
     <div>
-      <h1>外資持倉成本</h1>
-      <div class="sub">台指期（TX）外資及陸資未平倉淨部位・臺灣期貨交易所資料自算</div>
+      <h1><span id="idName">外資</span>持倉成本</h1>
+      <div class="sub" id="idSub">台指期（TX）外資及陸資未平倉淨部位・臺灣期貨交易所資料自算</div>
     </div>
     <div class="hd-right">
       <div class="theme" title="主題">
@@ -173,6 +182,10 @@
       <div class="sub" id="updated">載入中…</div>
     </div>
   </header>
+
+  <nav class="tabs" id="tabs" role="tablist" aria-label="法人">
+    <button role="tab" data-id="foreign">外資</button><button role="tab" data-id="trust">投信</button><button role="tab" data-id="dealer">自營商</button>
+  </nav>
 
   <div class="panel filters">
     <div class="seg presets" id="presets" role="group" aria-label="日期期間">
@@ -207,7 +220,7 @@
         <span><i class="box" style="background:var(--down)"></i>減少（偏空）</span>
       </div>
     </div>
-    <div class="chart sm"><canvas id="c2" aria-label="外資未平倉淨口數每日變動"></canvas></div>
+    <div class="chart sm"><canvas id="c2" aria-label="未平倉淨口數每日變動"></canvas></div>
   </div>
 
   <div class="panel">
@@ -231,15 +244,22 @@
   <div class="ft">
     <b>重置法</b>：與玩股網相同算法，每個結算日以近月（最高＋最低）÷2 重置成本，已實現每個合約月重新累計。
     <b>連續法</b>：以每日成交均價做移動平均，不因結算重置。標示「結算」者為近月合約結算日。<br>
+    自營商部位常在多空之間翻轉、口數較小，持倉成本參考性較低，請搭配淨口數一起看。<br>
     損益以億元顯示（每點 200 元）。資料來源：臺灣期貨交易所，每交易日 18:00 後更新。<br>
     <span>本頁數據與計算結果僅供參考，不構成任何投資建議，投資人應自行判斷並承擔風險。</span>
   </div>
 </div>
 
 <script>
-// 資料來源：同 repo 的 data/taifex_calc.csv（GitHub Pages），讀不到時改讀 raw.githubusercontent
-const SOURCES = ['data/taifex_calc.csv',
-  'https://raw.githubusercontent.com/mywu-cloud/futures/main/data/taifex_calc.csv'];
+// 資料來源：同 repo 的 data/taifex_calc*.csv（GitHub Pages），讀不到時改讀 raw.githubusercontent
+const RAW = 'https://raw.githubusercontent.com/mywu-cloud/futures/main/';
+const IDS = {
+  foreign: {name: '外資', sub: '台指期（TX）外資及陸資未平倉淨部位', file: 'data/taifex_calc.csv'},
+  trust:   {name: '投信', sub: '台指期（TX）投信未平倉淨部位',       file: 'data/taifex_calc_trust.csv'},
+  dealer:  {name: '自營商', sub: '台指期（TX）自營商未平倉淨部位',   file: 'data/taifex_calc_dealer.csv'}
+};
+const CACHE = {};
+let CUR = 'foreign', UPDATED = '';
 const JSON_SRC = ['data/latest.json',
   'https://raw.githubusercontent.com/mywu-cloud/futures/main/data/latest.json'];
 const CARD_PAGE = 20;   // 手機卡片一次顯示筆數
@@ -438,8 +458,40 @@ function downloadCSV() {
   const blob = new Blob(['﻿' + [head.join(','), ...body].join('\n')], {type: 'text/csv'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `外資持倉成本_${$('start').value}_${$('end').value}.csv`;
+  a.download = `${IDS[CUR].name}持倉成本_${$('start').value}_${$('end').value}.csv`;
   a.click(); URL.revokeObjectURL(a.href);
+}
+
+/* ---------------- 法人切換 ---------------- */
+async function loadIdentity(id) {
+  if (!CACHE[id]) CACHE[id] = parseCSV(await fetchFirst([IDS[id].file, RAW + IDS[id].file], 'text'));
+  return CACHE[id];
+}
+
+async function switchIdentity(id, first = false) {
+  if (!IDS[id]) id = 'foreign';
+  CUR = id;
+  document.querySelectorAll('#tabs button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.id === id)));
+  $('idName').textContent = IDS[id].name;
+  $('idSub').textContent = IDS[id].sub + '・臺灣期貨交易所資料自算';
+  document.title = IDS[id].name + '持倉成本';
+  try { localStorage.setItem('fc-id', id); } catch (e) {}
+  const u = new URL(location.href); u.searchParams.set('id', id); history.replaceState(null, '', u);
+  try {
+    ROWS = await loadIdentity(id);
+    if (!ROWS.length) throw new Error('資料檔沒有可用資料');
+  } catch (e) {
+    $('updated').innerHTML = `<span class="err">${IDS[id].name}資料載入失敗：${e.message}</span>`;
+    ROWS = []; VIEW = []; $('kpis').innerHTML = ''; $('tbody').innerHTML = ''; $('cards').innerHTML = ''; return;
+  }
+  const lastDate = slash(ROWS[ROWS.length - 1].date);
+  $('updated').textContent = `資料日期 ${lastDate}` + (UPDATED ? `・更新於 ${UPDATED}` : '');
+  $('start').min = $('end').min = ROWS[0].date;
+  $('start').max = $('end').max = ROWS[ROWS.length - 1].date;
+  const on = document.querySelector('#presets button.on');
+  if (first || !$('start').value) setPreset(30);          // 預設 30 天
+  else if (on) setPreset(on.dataset.d);                    // 沿用目前的期間按鈕
+  else apply();                                            // 沿用自訂日期
 }
 
 async function init() {
@@ -448,23 +500,19 @@ async function init() {
     b.classList.toggle('on', b.dataset.t === t);
     b.onclick = () => setTheme(b.dataset.t);
   });
-  try {
-    ROWS = parseCSV(await fetchFirst(SOURCES, 'text'));
-    if (!ROWS.length) throw new Error('資料檔沒有可用資料');
-  } catch (e) {
-    $('updated').innerHTML = `<span class="err">資料載入失敗：${e.message}</span>`; return;
-  }
-  const lastDate = slash(ROWS[ROWS.length - 1].date);
-  fetchFirst(JSON_SRC, 'json').then(j => { $('updated').textContent = `資料日期 ${lastDate}・更新於 ${j.updated_at}`; })
-    .catch(() => { $('updated').textContent = `資料日期 ${lastDate}`; });
-  $('start').min = $('end').min = ROWS[0].date;
-  $('start').max = $('end').max = ROWS[ROWS.length - 1].date;
-  document.querySelectorAll('#presets button').forEach(b => b.onclick = () => setPreset(b.dataset.d));
+  document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => { if (b.dataset.id !== CUR) switchIdentity(b.dataset.id); });
+  document.querySelectorAll('#presets button').forEach(b => b.onclick = () => ROWS.length && setPreset(b.dataset.d));
   for (const id of ['start', 'end']) $(id).onchange = () => {
     document.querySelectorAll('#presets button').forEach(b => b.classList.remove('on')); apply();
   };
   $('dl').onclick = downloadCSV;
-  setPreset(30);   // 預設 30 天
+  fetchFirst(JSON_SRC.concat(), 'json').then(j => {
+    UPDATED = j.updated_at;
+    if (ROWS.length) $('updated').textContent = `資料日期 ${slash(ROWS[ROWS.length - 1].date)}・更新於 ${UPDATED}`;
+  }).catch(() => {});
+  let id = new URLSearchParams(location.search).get('id');
+  if (!IDS[id]) { try { id = localStorage.getItem('fc-id'); } catch (e) {} }
+  await switchIdentity(IDS[id] ? id : 'foreign', true);
 }
 init();
 </script>

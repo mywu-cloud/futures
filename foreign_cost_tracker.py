@@ -1,22 +1,22 @@
 # -*- coding: utf-8 -*-
 """
-台指期 外資持倉成本 每日追蹤（期交所官方資料，兩種成本算法並列）
+台指期 三大法人（外資／投信／自營商）持倉成本 每日追蹤（期交所官方資料，兩種成本算法並列）
 ======================================================================
 用法（repo 根目錄執行；GitHub Actions 每個交易日自動執行）：
   python foreign_cost_tracker.py                      # 每日例行
   python foreign_cost_tracker.py --backfill-days 730  # 首次回補（預設 365 天）
 
 資料來源（臺灣期貨交易所）：
-  三大法人-區分各期貨契約（TXF，外資及陸資）
+  三大法人-區分各期貨契約（TXF：外資及陸資、投信、自營商）
   期貨每日交易行情（TX 一般盤：近月高低收、結算價、次月收盤）
 
 輸出（data/ 目錄；CSV 為主資料，xlsx / json 由 CSV 重建；資料無變動時不改寫任何檔案）：
-  data/taifex_raw.csv             期交所每日原始資料
-  data/taifex_calc.csv            原始資料 + 兩種自算持倉成本與損益
-  data/futures_foreign_cost.xlsx  對照總表 / 期交所原始 / 走勢圖 / 說明
-  data/latest.json                最新一日摘要 + 近 120 日走勢（網站前端讀取）
+  data/taifex_raw{,_trust,_dealer}.csv    外資／投信／自營商 期交所每日原始資料
+  data/taifex_calc{,_trust,_dealer}.csv   原始資料 + 兩種自算持倉成本與損益
+  data/futures_foreign_cost.xlsx          三法人對照總表 / 原始 / 走勢圖 / 說明
+  data/latest.json                        外資最新摘要＋走勢（相容舊版）＋三法人摘要 identities
 
-算法一「結算重置法」（與玩股網相同算法，2026/10/08 驗證數值一致）：
+算法一「結算重置法」（與玩股網相同算法，2026/10/08 外資／投信／自營商皆驗證數值一致）：
   結算日：成本 =（近月最高 + 最低）/ 2 重置；未實現以次月收盤計
   非結算日：淨口數與前日同號且同向加碼 → 以近月收盤價加權平均；同號減碼 → 成本不變；
             翻空翻多 → 成本 =（最高 + 最低）/ 2；淨口數 0 → 成本 0
@@ -65,6 +65,11 @@ CALC_COLS = ["結算日", "淨口數變動",
              "重置法成本", "重置法未實現(萬元)", "重置法已實現(萬元)", "重置法總損益(萬元)",
              "當日成交均價", "連續法成本", "連續法未實現(萬元)", "連續法已實現累計(萬元)", "連續法總損益(萬元)"]
 TEXT_COLS = ("日期", "近月契約")
+
+# (代號, 顯示名稱, 期交所「身份別」關鍵字, 檔名後綴)
+IDENTITIES = [("foreign", "外資", "外資", ""),
+              ("trust", "投信", "投信", "_trust"),
+              ("dealer", "自營商", "自營", "_dealer")]
 
 
 def now():
@@ -148,16 +153,19 @@ def check_csv(text, first_col):
 def parse_taifex_inst(text):
     rows = check_csv(text, "日期")
     if not rows:
-        return {}
+        return {k: {} for k, *_ in IDENTITIES}
     h = [c.strip() for c in rows[0]]
     i_d, i_id = find_col(h, "日期"), find_col(h, "身份別")
     i_tq, i_ta = find_col(h, "多空", "交易", "口數", "淨額"), find_col(h, "多空", "交易", "金額", "淨額")
     i_oq, i_oa = find_col(h, "多空", "未平倉", "口數", "淨額"), find_col(h, "多空", "未平倉", "金額", "淨額")
-    out = {}
+    out = {k: {} for k, *_ in IDENTITIES}
     for r in rows[1:]:
-        if len(r) > i_oa and "外資" in r[i_id]:
+        if len(r) <= i_oa:
+            continue
+        key = next((k for k, _, kw, _ in IDENTITIES if kw in r[i_id]), None)
+        if key:
             d = norm_date(r[i_d])
-            out[d] = {"日期": d, "多空交易口數淨額": to_num(r[i_tq]), "多空交易契約金額淨額(千元)": to_num(r[i_ta]),
+            out[key][d] = {"日期": d, "多空交易口數淨額": to_num(r[i_tq]), "多空交易契約金額淨額(千元)": to_num(r[i_ta]),
                       "未平倉淨口數": to_num(r[i_oq]), "未平倉契約金額淨額(千元)": to_num(r[i_oa])}
     return out
 
@@ -200,7 +208,7 @@ def fetch_inst(s, e):
     此時逐日往前縮短結束日重試（最多 10 天）。"""
     for _ in range(11):
         if e < s:
-            return {}
+            return {k: {} for k, *_ in IDENTITIES}
         text = decode(http_post(TAIFEX_INST_URL, {"queryStartDate": s.strftime("%Y/%m/%d"),
                                                   "queryEndDate": e.strftime("%Y/%m/%d"), "commodityId": "TXF"}))
         if "DateTime error" not in text:
@@ -212,19 +220,20 @@ def fetch_inst(s, e):
 
 
 def fetch_taifex(start, end):
-    inst, price, s = {}, {}, start
+    inst, price, s = {k: {} for k, *_ in IDENTITIES}, {}, start
     while s <= end:
         e = min(s + timedelta(days=29), end)
         a, b = s.strftime("%Y/%m/%d"), e.strftime("%Y/%m/%d")
         log(f"  期交所 {a} ~ {b}")
-        inst.update(fetch_inst(s, e))
+        for k, rows in fetch_inst(s, e).items():
+            inst[k].update(rows)
         price.update(parse_taifex_price(decode(http_post(
             TAIFEX_PRICE_URL, {"down_type": "1", "commodity_id": "TX", "commodity_id2": "",
                                "queryStartDate": a, "queryEndDate": b}))))
         s = e + timedelta(days=1)
         time.sleep(1.5)
     empty = {k: None for k in RAW_COLS[5:]}
-    return {d: {**row, **price.get(d, empty)} for d, row in inst.items()}
+    return {k: {d: {**row, **price.get(d, empty)} for d, row in rows.items()} for k, rows in inst.items()}
 
 
 # ---------------------------------------------------------------- 自算持倉成本
@@ -381,38 +390,48 @@ def write_sheet(ws, cols, rows, fmts, widths=None):
     ws.freeze_panes = "B2"
 
 
-def build_workbook(path, calc, data_date):
+def build_workbook(path, calcs, data_date):
+    """calcs: {代號: compute_cost 結果}；每個法人一張對照總表 + 一張原始表，走勢圖一張三圖"""
     wb = Workbook()
-    ws = wb.active
-    ws.title = "對照總表"
+    wb.remove(wb.active)
     cols = ["日期", "結算日", "近月收盤", "未平倉淨口數", "淨口數變動",
             "重置法成本", "連續法成本", "成本差異(重置-連續)", "收盤距重置法成本",
             "重置法未實現(萬元)", "重置法已實現(萬元)", "重置法總損益(萬元)",
             "連續法未實現(萬元)", "連續法總損益(萬元)"]
-    rows = [r | {"結算日": "結算" if r.get("結算日") else ""} for r in calc]
-    write_sheet(ws, cols, rows, {
-        "近月收盤": INT0, "未平倉淨口數": INT_RG, "淨口數變動": INT_RG,
-        "重置法成本": NUM2, "連續法成本": NUM2, "成本差異(重置-連續)": NUM_RG, "收盤距重置法成本": NUM_RG,
-        "重置法未實現(萬元)": NUM_RG, "重置法已實現(萬元)": NUM_RG, "重置法總損益(萬元)": NUM_RG,
-        "連續法未實現(萬元)": NUM_RG, "連續法總損益(萬元)": NUM_RG}, {"日期": 12, "結算日": 8})
-    for i, r in enumerate(rows, 2):  # 差異欄用公式，兩邊皆有值才計算
-        ws[f"H{i}"] = f'=IF(AND(ISNUMBER(F{i}),ISNUMBER(G{i})),F{i}-G{i},"")'
-        ws[f"I{i}"] = f'=IF(AND(ISNUMBER(C{i}),ISNUMBER(F{i})),C{i}-F{i},"")'
-        if r["結算日"]:
-            ws[f"B{i}"].fill = SETTLE_FILL
+    summary_sheets = {}
+    for key, name, *_ in IDENTITIES:
+        calc = calcs.get(key) or []
+        ws = wb.create_sheet(f"{name}對照")
+        rows = [r | {"結算日": "結算" if r.get("結算日") else ""} for r in calc]
+        write_sheet(ws, cols, rows, {
+            "近月收盤": INT0, "未平倉淨口數": INT_RG, "淨口數變動": INT_RG,
+            "重置法成本": NUM2, "連續法成本": NUM2, "成本差異(重置-連續)": NUM_RG, "收盤距重置法成本": NUM_RG,
+            "重置法未實現(萬元)": NUM_RG, "重置法已實現(萬元)": NUM_RG, "重置法總損益(萬元)": NUM_RG,
+            "連續法未實現(萬元)": NUM_RG, "連續法總損益(萬元)": NUM_RG}, {"日期": 12, "結算日": 8})
+        for i, r in enumerate(rows, 2):  # 差異欄用公式，兩邊皆有值才計算
+            ws[f"H{i}"] = f'=IF(AND(ISNUMBER(F{i}),ISNUMBER(G{i})),F{i}-G{i},"")'
+            ws[f"I{i}"] = f'=IF(AND(ISNUMBER(C{i}),ISNUMBER(F{i})),C{i}-F{i},"")'
+            if r["結算日"]:
+                ws[f"B{i}"].fill = SETTLE_FILL
+        summary_sheets[key] = (name, ws, rows)
 
-    write_sheet(wb.create_sheet("期交所原始"), RAW_COLS + CALC_COLS, calc, {
-        "多空交易口數淨額": INT_RG, "多空交易契約金額淨額(千元)": INT_RG, "未平倉淨口數": INT_RG,
-        "未平倉契約金額淨額(千元)": INT_RG, "近月最高": INT0, "近月最低": INT0, "近月收盤": INT0,
-        "近月結算價": INT0, "次月收盤": INT0, "淨口數變動": INT_RG,
-        "重置法成本": NUM2, "重置法未實現(萬元)": NUM_RG, "重置法已實現(萬元)": NUM_RG, "重置法總損益(萬元)": NUM_RG,
-        "當日成交均價": NUM2, "連續法成本": NUM2, "連續法未實現(萬元)": NUM_RG,
-        "連續法已實現累計(萬元)": NUM_RG, "連續法總損益(萬元)": NUM_RG})
+    for key, name, *_ in IDENTITIES:
+        write_sheet(wb.create_sheet(f"{name}原始"), RAW_COLS + CALC_COLS, calcs.get(key) or [], {
+            "多空交易口數淨額": INT_RG, "多空交易契約金額淨額(千元)": INT_RG, "未平倉淨口數": INT_RG,
+            "未平倉契約金額淨額(千元)": INT_RG, "近月最高": INT0, "近月最低": INT0, "近月收盤": INT0,
+            "近月結算價": INT0, "次月收盤": INT0, "淨口數變動": INT_RG,
+            "重置法成本": NUM2, "重置法未實現(萬元)": NUM_RG, "重置法已實現(萬元)": NUM_RG, "重置法總損益(萬元)": NUM_RG,
+            "當日成交均價": NUM2, "連續法成本": NUM2, "連續法未實現(萬元)": NUM_RG,
+            "連續法已實現累計(萬元)": NUM_RG, "連續法總損益(萬元)": NUM_RG})
 
-    if len(rows) >= 2:
+    chart_ws = wb.create_sheet("走勢圖", 3)
+    anchor_row = 2
+    for key, (name, ws, rows) in summary_sheets.items():
+        if len(rows) < 2:
+            continue
         n = len(rows) + 1
         ch = LineChart()
-        ch.title, ch.height, ch.width, ch.y_axis.title = "外資持倉成本 vs 台指期近月收盤", 11, 28, "點"
+        ch.title, ch.height, ch.width, ch.y_axis.title = f"{name}持倉成本 vs 台指期近月收盤", 10, 28, "點"
         for col in (3, 6, 7):
             ch.add_data(Reference(ws, min_col=col, min_row=1, max_row=n), titles_from_data=True)
         ch.set_categories(Reference(ws, min_col=1, min_row=2, max_row=n))
@@ -422,24 +441,26 @@ def build_workbook(path, calc, data_date):
             ch.y_axis.scaling.max = int(-(-max(vals) // 1000) * 1000)
         ch.x_axis.number_format, ch.x_axis.tickLblSkip = "@", max(1, len(rows) // 12)
         ch.x_axis.delete = ch.y_axis.delete = False  # 新版 Excel 預設會隱藏 openpyxl 圖表座標軸
-        for s, color in zip(ch.series, ("6B7280", "DC2626", "2563EB")):
+        for s, color in zip(ch.series, ("2A78D6", "B07400", "11906A")):
             s.graphicalProperties.line.solidFill = color
             s.graphicalProperties.line.width = 15000
             s.smooth = False
-        wb.create_sheet("走勢圖").add_chart(ch, "B2")
+        chart_ws.add_chart(ch, f"B{anchor_row}")
+        anchor_row += 22
 
     ws4 = wb.create_sheet("說明")
     for r in [("項目", "說明"),
-              ("用途", "台指期外資持倉成本：以期交所官方資料自算兩種成本線並列對照，GitHub Actions 每交易日更新"),
-              ("資料來源", "臺灣期貨交易所：三大法人-區分各期貨契約(TXF 外資及陸資)、期貨每日交易行情(TX 月契約一般盤)"),
+              ("用途", "台指期三大法人（外資、投信、自營商）持倉成本：以期交所官方資料自算兩種成本線並列對照，GitHub Actions 每交易日更新"),
+              ("資料來源", "臺灣期貨交易所：三大法人-區分各期貨契約(TXF)、期貨每日交易行情(TX 月契約一般盤)"),
               ("重置法", "與玩股網相同算法：結算日以近月(最高+最低)/2 重置成本、未實現以次月收盤計；"
                       "非結算日同向加碼以收盤價加權、減碼成本不變、翻向以(最高+最低)/2 重設；已實現每個合約月重新累計"),
               ("連續法", "移動平均成本法：成交均價=交易契約金額淨額/交易口數淨額/200（偏離收盤>15%改用結算價）；"
                       "反向沖銷計已實現、自回補起始日累計，不因結算重置"),
-              ("結算日", "近月結算價為 0（到期日）或隔日近月換月者標為結算日，對照總表以黃底標示"),
+              ("結算日", "近月結算價為 0（到期日）或隔日近月換月者標為結算日，對照表以黃底標示"),
+              ("自營商", "自營商部位常在多空間翻轉、口數小，持倉成本參考性較低，請搭配淨口數一起看"),
               ("損益單位", "萬元（每點 200 元）"),
               ("色彩慣例", "台股慣例：正值/增加=紅，負值/減少=綠"),
-              ("公式欄", "對照總表 H、I 欄為公式，兩邊皆有數值時才計算"),
+              ("公式欄", "各對照表 H、I 欄為公式，兩邊皆有數值時才計算"),
               ("資料日期", data_date),
               ("免責聲明", "數據僅供參考，不構成任何投資建議；資料以期交所公告為準，使用者須遵守期交所資料使用規範")]:
         ws4.append(r)
@@ -453,25 +474,36 @@ def build_workbook(path, calc, data_date):
     log(f"已寫入 {path}")
 
 
-def build_latest(calc, status):
+def summarize(calc):
     valid = [r for r in calc if r.get("重置法成本") is not None]
-    last = valid[-1] if valid else None
-    summary = None
-    if last:
-        summary = {
-            "date": last["日期"], "close": clean(last["近月收盤"]), "contract": last["近月契約"],
-            "net_oi": clean(last["未平倉淨口數"]), "net_oi_change": clean(last["淨口數變動"]),
-            "settlement_day": bool(last["結算日"]),
-            "reset": {"cost": last["重置法成本"], "unrealized": last["重置法未實現(萬元)"],
-                      "realized": last["重置法已實現(萬元)"], "total": last["重置法總損益(萬元)"]},
-            "continuous": {"cost": last["連續法成本"], "unrealized": last["連續法未實現(萬元)"],
-                           "realized": last["連續法已實現累計(萬元)"], "total": last["連續法總損益(萬元)"]}}
+    if not valid:
+        return None, []
+    last = valid[-1]
+    return {
+        "date": last["日期"], "close": clean(last["近月收盤"]), "contract": last["近月契約"],
+        "net_oi": clean(last["未平倉淨口數"]), "net_oi_change": clean(last["淨口數變動"]),
+        "settlement_day": bool(last["結算日"]),
+        "reset": {"cost": last["重置法成本"], "unrealized": last["重置法未實現(萬元)"],
+                  "realized": last["重置法已實現(萬元)"], "total": last["重置法總損益(萬元)"]},
+        "continuous": {"cost": last["連續法成本"], "unrealized": last["連續法未實現(萬元)"],
+                       "realized": last["連續法已實現累計(萬元)"], "total": last["連續法總損益(萬元)"]}}, valid
+
+
+def build_latest(calcs, status):
+    """latest / history 為外資（相容舊版網站卡片）；identities 為三法人摘要"""
+    fsum, fvalid = summarize(calcs.get("foreign") or [])
+    identities = {}
+    for key, name, *_ in IDENTITIES:
+        summ, _ = summarize(calcs.get(key) or [])
+        identities[key] = {"name": name, "csv": f"data/taifex_calc{dict((k, s) for k, _, _, s in IDENTITIES)[key]}.csv",
+                           "latest": summ}
     return {
         "updated_at": now().strftime("%Y-%m-%d %H:%M"), "status": status, "unit": "損益單位：萬元",
-        "latest": summary,
+        "latest": fsum,
         "history": {"fields": ["date", "close", "reset_cost", "continuous_cost", "net_oi"],
                     "rows": [[r["日期"], clean(r["近月收盤"]), r["重置法成本"], r["連續法成本"],
-                              clean(r["未平倉淨口數"])] for r in valid[-HISTORY_DAYS:]]},
+                              clean(r["未平倉淨口數"])] for r in fvalid[-HISTORY_DAYS:]]},
+        "identities": identities,
         "disclaimer": "數據僅供參考，不構成任何投資建議；資料來源：臺灣期貨交易所"}
 
 
@@ -479,51 +511,58 @@ def build_latest(calc, status):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data-dir", default=DATA_DIR)
-    ap.add_argument("--backfill-days", type=int, default=365)
+    ap.add_argument("--backfill-days", type=int, default=730)
     ap.add_argument("--rebuild", action="store_true", help="CSV 未變動也強制重建 xlsx / json")
     a = ap.parse_args()
 
     os.makedirs(a.data_dir, exist_ok=True)
     P = lambda n: os.path.join(a.data_dir, n)  # noqa
-    tf = load_csv(P("taifex_raw.csv"), RAW_COLS)
-    log(f"既有資料：期交所 {len(tf)} 筆")
+    stores = {k: load_csv(P(f"taifex_raw{sfx}.csv"), RAW_COLS) for k, _, _, sfx in IDENTITIES}
+    log("既有資料：" + "、".join(f"{name} {len(stores[k])} 筆" for k, name, *_ in IDENTITIES))
     status = "ok"
 
     try:
         today = now().date()
-        start = (datetime.strptime(max(tf), "%Y/%m/%d").date() - timedelta(days=3)) if tf \
-            else today - timedelta(days=a.backfill_days)
+        # 各法人分別決定起始日：有資料者從最後一筆前 3 天起，沒有者（新加入）回補 backfill_days
+        start = min((datetime.strptime(max(st), "%Y/%m/%d").date() - timedelta(days=3)) if st
+                    else today - timedelta(days=a.backfill_days) for st in stores.values())
         new = fetch_taifex(start, today)
-        if not new and (today - start).days >= 14:
+        if not any(new.values()) and (today - start).days >= 14:
             raise RuntimeError(f"{start} ~ {today} 期間查無任何資料，可能被期交所阻擋或網站改版")
-        tf.update(new)
-        log(f"期交所新增/更新 {len(new)} 筆")
+        for k, rows in new.items():
+            stores[k].update(rows)
+        log("期交所新增/更新：" + "、".join(f"{name} {len(new[k])} 筆" for k, name, *_ in IDENTITIES))
     except Exception as e:
         status = f"error: {e}"
         log(f"期交所抓取失敗：{e}")
 
-    if not tf:
+    if not any(stores.values()):
         log("沒有任何資料，結束")
         sys.exit(1)
 
-    calc = compute_cost(tf)
-    raw_txt = csv_text(RAW_COLS, [tf[d] for d in sorted(tf)])
-    calc_txt = csv_text(RAW_COLS + CALC_COLS, calc)
-    unchanged = (raw_txt == read_text(P("taifex_raw.csv")) and calc_txt == read_text(P("taifex_calc.csv"))
+    calcs, texts = {}, {}
+    for k, _, _, sfx in IDENTITIES:
+        tf = stores[k]
+        calcs[k] = compute_cost(tf)
+        texts[f"taifex_raw{sfx}.csv"] = csv_text(RAW_COLS, [tf[d] for d in sorted(tf)])
+        texts[f"taifex_calc{sfx}.csv"] = csv_text(RAW_COLS + CALC_COLS, calcs[k])
+    unchanged = (all(t == read_text(P(n)) for n, t in texts.items())
                  and os.path.exists(P("futures_foreign_cost.xlsx")) and os.path.exists(P("latest.json")))
 
     if unchanged and status == "ok" and not a.rebuild:
         log("資料無變動（假日或尚未公布），不改寫檔案")
     else:
-        write_text(P("taifex_raw.csv"), raw_txt)
-        write_text(P("taifex_calc.csv"), calc_txt)
-        build_workbook(P("futures_foreign_cost.xlsx"), calc, max(tf))
+        for n, t in texts.items():
+            write_text(P(n), t)
+        data_date = max(d for st in stores.values() for d in st)
+        build_workbook(P("futures_foreign_cost.xlsx"), calcs, data_date)
         with open(P("latest.json"), "w", encoding="utf-8") as f:
-            json.dump(build_latest(calc, {"taifex": status}), f, ensure_ascii=False, indent=1)
-        last = next((r for r in reversed(calc) if r.get("重置法成本") is not None), None)
-        if last:
-            log(f"{last['日期']} 收盤 {last['近月收盤']:,.0f}｜重置法成本 {last['重置法成本']:,.2f}｜"
-                f"連續法成本 {last['連續法成本']}｜淨口數 {last['未平倉淨口數']:,.0f}")
+            json.dump(build_latest(calcs, {"taifex": status}), f, ensure_ascii=False, indent=1)
+        for k, name, *_ in IDENTITIES:
+            last = next((r for r in reversed(calcs[k]) if r.get("重置法成本") is not None), None)
+            if last:
+                log(f"{name} {last['日期']} 收盤 {last['近月收盤']:,.0f}｜重置法成本 {last['重置法成本']:,.2f}｜"
+                    f"連續法成本 {last['連續法成本']}｜淨口數 {last['未平倉淨口數']:,.0f}")
 
     sys.exit(1 if status != "ok" else 0)  # 失敗 → Actions 標紅並寄信（已取得的資料仍會 commit）
 
