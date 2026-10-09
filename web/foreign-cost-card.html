@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>外資台指期持倉成本</title>
+<style>
+  :root{--bg:#0b1220;--card:#111a2e;--line:#1f2a44;--text:#e5e7eb;--muted:#94a3b8;--up:#ef4444;--down:#22c55e;--reset:#f87171;--cont:#60a5fa;--close:#cbd5e1}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;padding:16px}
+  .card{max-width:560px;margin:0 auto;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 18px 14px}
+  .hd{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+  h2{margin:0;font-size:16px;font-weight:600}
+  .date{color:var(--muted);font-size:12px}
+  .big{display:flex;gap:20px;margin:14px 0 6px;flex-wrap:wrap}
+  .big div{min-width:120px}
+  .lbl{color:var(--muted);font-size:12px}
+  .val{font-size:24px;font-weight:700;font-variant-numeric:tabular-nums}
+  .sub{font-size:12px;font-variant-numeric:tabular-nums}
+  .up{color:var(--up)} .down{color:var(--down)}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:12px 0}
+  .cell{background:#0d1526;border:1px solid var(--line);border-radius:10px;padding:8px 10px}
+  .cell .v{font-weight:600;font-variant-numeric:tabular-nums}
+  svg{width:100%;height:150px;display:block}
+  .legend{display:flex;gap:14px;font-size:12px;color:var(--muted);flex-wrap:wrap}
+  .legend i{display:inline-block;width:14px;height:2px;vertical-align:middle;margin-right:5px}
+  .ft{margin-top:10px;color:var(--muted);font-size:11px;line-height:1.6}
+  .warn{color:#fbbf24}
+  @media (max-width:420px){.grid{gap:6px}.cell{padding:7px 8px}.cell .v{font-size:13px}.val{font-size:20px}}
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <div class="hd"><h2>外資台指期持倉成本</h2><span class="date" id="date">載入中…</span></div>
+  <div class="big">
+    <div><div class="lbl">持倉成本（結算重置法）</div><div class="val" id="cost">—</div><div class="sub" id="contCost"></div></div>
+    <div><div class="lbl">台指期近月收盤</div><div class="val" id="close">—</div><div class="sub" id="gap"></div></div>
+  </div>
+  <div class="grid">
+    <div class="cell"><div class="lbl">未平倉淨口數</div><div class="v" id="oi">—</div><div class="sub" id="oiChg"></div></div>
+    <div class="cell"><div class="lbl">未實現損益</div><div class="v" id="unreal">—</div><div class="sub lbl">億元</div></div>
+    <div class="cell"><div class="lbl">本月已實現</div><div class="v" id="real">—</div><div class="sub lbl">億元</div></div>
+  </div>
+  <svg id="chart" role="img" aria-label="收盤價與持倉成本走勢"></svg>
+  <div class="legend"><span><i style="background:var(--close)"></i>近月收盤</span><span><i style="background:var(--reset)"></i>重置法成本</span><span><i style="background:var(--cont)"></i>連續法成本</span></div>
+  <div class="ft" id="ft">資料來源：臺灣期貨交易所，自算持倉成本。數據僅供參考，不構成任何投資建議。</div>
+</div>
+<script>
+// 資料來源：預設讀 GitHub repo 的 latest.json；可用 ?src=網址 覆寫
+const SRC = new URLSearchParams(location.search).get('src')
+  || 'https://raw.githubusercontent.com/mywu-cloud/futures/main/data/latest.json';
+// 連線失敗時顯示的範例資料（2026/09/16～10/08 實際計算結果）
+const SAMPLE = {"updated_at":"2026-10-09 18:00","status":{"taifex":"ok"},"unit":"損益單位：萬元","latest":{"date":"2026/10/08","close":49349,"contract":"202610","net_oi":-83194,"net_oi_change":-4093,"settlement_day":false,"reset":{"cost":46319.72,"unrealized":-5040356.31,"realized":-504718.16,"total":-5545074.47},"continuous":{"cost":46796.6,"unrealized":-4246894.17,"realized":1704771.54,"total":-2542122.64}},"history":{"fields":["date","close","reset_cost","continuous_cost","net_oi"],"rows":[["2026/09/16",45759,45805.5,46401.38,-76351],["2026/09/17",46445,45824.38,46395.4,-78674],["2026/09/18",47418,45824.38,46395.4,-76110],["2026/09/21",48077,45824.38,46395.4,-74081],["2026/09/22",48243,45871.98,46434.59,-75568],["2026/09/23",48336,45888.69,46445.2,-76084],["2026/09/24",48123,45916.15,46465.49,-77031],["2026/09/29",47767,45962.95,46501.75,-79029],["2026/09/30",48330,45962.95,46501.75,-78151],["2026/10/01",48685,46010.95,46530.95,-79554],["2026/10/02",48671,46035.8,46543.02,-80304],["2026/10/05",49949,46035.8,46543.02,-77004],["2026/10/06",50060,46162.97,46652.0,-79517],["2026/10/07",49979,46162.97,46652.0,-79101],["2026/10/08",49349,46319.72,46796.6,-83194]]},"disclaimer":"數據僅供參考，不構成任何投資建議；資料來源：臺灣期貨交易所"};
+
+const $ = id => document.getElementById(id);
+const fmt = (v, d = 0) => v == null ? '—' : Number(v).toLocaleString('zh-TW', {minimumFractionDigits: d, maximumFractionDigits: d});
+const sign = v => v > 0 ? '+' : '';
+const cls = v => v > 0 ? 'up' : v < 0 ? 'down' : '';   // 台股慣例：紅漲綠跌
+const yi = v => v == null ? null : v / 1e4;             // 萬元 → 億元
+
+function render(d, isSample) {
+  const L = d.latest;
+  if (!L) throw new Error('latest.json 無資料');
+  $('date').textContent = L.date + (L.settlement_day ? '（結算日）' : '') + (isSample ? '・範例資料' : '');
+  $('cost').textContent = fmt(L.reset.cost, 2);
+  $('contCost').textContent = '連續法 ' + fmt(L.continuous.cost, 2);
+  $('close').textContent = fmt(L.close);
+  const gap = L.close - L.reset.cost;
+  $('gap').innerHTML = '距成本 <span class="' + cls(gap) + '">' + sign(gap) + fmt(gap, 0) + ' 點</span>';
+  $('oi').innerHTML = '<span class="' + cls(L.net_oi) + '">' + (L.net_oi < 0 ? '淨空 ' : '淨多 ') + fmt(Math.abs(L.net_oi)) + '</span>';
+  $('oiChg').innerHTML = '日變動 <span class="' + cls(L.net_oi_change) + '">' + sign(L.net_oi_change) + fmt(L.net_oi_change) + '</span>';
+  for (const [id, v] of [['unreal', yi(L.reset.unrealized)], ['real', yi(L.reset.realized)]]) {
+    $(id).className = 'v ' + cls(v); $(id).textContent = sign(v) + fmt(v, 1);
+  }
+  drawChart(d.history.rows);
+  addEventListener('resize', () => drawChart(d.history.rows));
+  if (isSample) $('ft').insertAdjacentHTML('afterbegin', '<span class="warn">無法讀取即時資料，以下為範例。</span><br>');
+}
+
+function drawChart(rows) {
+  const svg = $('chart'), W = Math.max(280, svg.clientWidth || 520), H = 150, P = 6, PT = 16;
+  svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+  if (!rows || rows.length < 2) { svg.innerHTML = ''; return; }
+  const vals = rows.flatMap(r => [r[1], r[2], r[3]]).filter(v => v != null);
+  const lo = Math.min(...vals), hi = Math.max(...vals), span = (hi - lo) || 1;
+  const x = i => P + i * (W - 2 * P) / (rows.length - 1);
+  const y = v => H - P - (v - lo) / span * (H - P - PT);
+  const path = k => rows.map((r, i) => r[k] == null ? '' : (i ? 'L' : 'M') + x(i).toFixed(1) + ' ' + y(r[k]).toFixed(1)).join(' ').replace(/^ *L/, 'M');
+  const grid = [0, .5, 1].map(t => { const v = lo + span * t; return '<line x1="0" x2="' + W + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="#1f2a44"/>'
+    + '<text x="' + (W - 2) + '" y="' + (y(v) - 3) + '" fill="#64748b" font-size="10" text-anchor="end">' + fmt(v) + '</text>'; }).join('');
+  svg.innerHTML = grid
+    + '<path d="' + path(1) + '" fill="none" stroke="var(--close)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>'
+    + '<path d="' + path(3) + '" fill="none" stroke="var(--cont)" stroke-width="1.5" stroke-dasharray="4 3" vector-effect="non-scaling-stroke"/>'
+    + '<path d="' + path(2) + '" fill="none" stroke="var(--reset)" stroke-width="2" vector-effect="non-scaling-stroke"/>';
+}
+
+fetch(SRC, {cache: 'no-store'})
+  .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+  .then(d => render(d, false))
+  .catch(() => render(SAMPLE, true));
+</script>
+</body>
+</html>
