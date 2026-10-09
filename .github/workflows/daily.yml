@@ -39,7 +39,7 @@ jobs:
         id: fetch
         continue-on-error: true
         env:
-          BACKFILL_DAYS: ${{ inputs.backfill_days || '365' }}
+          BACKFILL_DAYS: ${{ inputs.backfill_days || '730' }}
           REBUILD: ${{ inputs.rebuild && '--rebuild' || '' }}
         run: python foreign_cost_tracker.py --backfill-days "$BACKFILL_DAYS" $REBUILD
 
