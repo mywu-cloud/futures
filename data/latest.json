@@ -1,7 +1,7 @@
 {
- "updated_at": "2026-10-15 22:50",
+ "updated_at": "2026-10-16 22:45",
  "status": {
-  "taifex": "ok"
+  "taifex": "error: 請求失敗：https://www.taifex.com.tw/cht/3/futContractsDateDown（ReadTimeout(ReadTimeoutError(\"HTTPSConnectionPool(host='www.taifex.com.tw', port=443): Read timed out. (read timeout=30)\"))）"
  },
  "unit": "損益單位：萬元",
  "latest": {
