@@ -2,8 +2,11 @@ name: 外資持倉成本每日更新
 
 on:
   schedule:
-    # GitHub cron 為 UTC：10:00 UTC = 台灣 18:00，週一至週五（GitHub 排程常延遲數分鐘至數十分鐘）
-    - cron: "0 10 * * 1-5"
+    # GitHub cron 為 UTC。避開整點以減少排程延遲；第二個時段為備援（無新資料時不會 commit）
+    # 10:23 UTC = 台灣 18:23，週一至週五
+    - cron: "23 10 * * 1-5"
+    # 12:47 UTC = 台灣 20:47，週一至週五（備援 / 補抓失敗）
+    - cron: "47 12 * * 1-5"
   workflow_dispatch:
     inputs:
       backfill_days:
@@ -23,7 +26,7 @@ concurrency:
 
 jobs:
   update:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
