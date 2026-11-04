@@ -1,27 +1,27 @@
 {
- "updated_at": "2026-11-04 01:54",
+ "updated_at": "2026-11-05 02:03",
  "status": {
   "taifex": "ok"
  },
  "unit": "損益單位：萬元",
  "latest": {
-  "date": "2026/11/03",
-  "close": 43376,
+  "date": "2026/11/04",
+  "close": 43204,
   "contract": "202611",
-  "net_oi": -91812,
-  "net_oi_change": -2433,
+  "net_oi": -93647,
+  "net_oi_change": -1835,
   "settlement_day": false,
   "reset": {
-   "cost": 46774.25,
-   "unrealized": 6239996.0,
+   "cost": 46704.29,
+   "unrealized": 6555829.28,
    "realized": 106544.68,
-   "total": 6346540.68
+   "total": 6662373.96
   },
   "continuous": {
-   "cost": 45234.89,
-   "unrealized": 3413375.68,
+   "cost": 45159.69,
+   "unrealized": 3662894.32,
    "realized": -9725251.58,
-   "total": -6311875.9
+   "total": -6062357.25
   }
  },
  "history": {
@@ -33,13 +33,6 @@
    "net_oi"
   ],
   "rows": [
-   [
-    "2026/05/11",
-    41945,
-    38192.48,
-    36278.02,
-    -54225
-   ],
    [
     "2026/05/12",
     41695,
@@ -872,6 +865,13 @@
     46774.25,
     45234.89,
     -91812
+   ],
+   [
+    "2026/11/04",
+    43204,
+    46704.29,
+    45159.69,
+    -93647
    ]
   ]
  },
@@ -880,23 +880,23 @@
    "name": "外資",
    "csv": "data/taifex_calc.csv",
    "latest": {
-    "date": "2026/11/03",
-    "close": 43376,
+    "date": "2026/11/04",
+    "close": 43204,
     "contract": "202611",
-    "net_oi": -91812,
-    "net_oi_change": -2433,
+    "net_oi": -93647,
+    "net_oi_change": -1835,
     "settlement_day": false,
     "reset": {
-     "cost": 46774.25,
-     "unrealized": 6239996.0,
+     "cost": 46704.29,
+     "unrealized": 6555829.28,
      "realized": 106544.68,
-     "total": 6346540.68
+     "total": 6662373.96
     },
     "continuous": {
-     "cost": 45234.89,
-     "unrealized": 3413375.68,
+     "cost": 45159.69,
+     "unrealized": 3662894.32,
      "realized": -9725251.58,
-     "total": -6311875.9
+     "total": -6062357.25
     }
    }
   },
@@ -904,23 +904,23 @@
    "name": "投信",
    "csv": "data/taifex_calc_trust.csv",
    "latest": {
-    "date": "2026/11/03",
-    "close": 43376,
+    "date": "2026/11/04",
+    "close": 43204,
     "contract": "202611",
-    "net_oi": 86998,
-    "net_oi_change": -2141,
+    "net_oi": 89500,
+    "net_oi_change": 2502,
     "settlement_day": false,
     "reset": {
-     "cost": 46898.38,
-     "unrealized": -6128794.04,
+     "cost": 46795.1,
+     "unrealized": -6428067.16,
      "realized": -155564.98,
-     "total": -6284359.02
+     "total": -6583632.14
     },
     "continuous": {
-     "cost": 42149.69,
-     "unrealized": 2133733.7,
+     "cost": 42179.61,
+     "unrealized": 1833656.44,
      "realized": 8491892.43,
-     "total": 10625626.14
+     "total": 10325548.88
     }
    }
   },
@@ -928,23 +928,23 @@
    "name": "自營商",
    "csv": "data/taifex_calc_dealer.csv",
    "latest": {
-    "date": "2026/11/03",
-    "close": 43376,
+    "date": "2026/11/04",
+    "close": 43204,
     "contract": "202611",
-    "net_oi": 3976,
-    "net_oi_change": 2669,
+    "net_oi": 2961,
+    "net_oi_change": -1015,
     "settlement_day": false,
     "reset": {
      "cost": 44378.24,
-     "unrealized": -79697.83,
-     "realized": -17639.27,
-     "total": -97337.1
+     "unrealized": -69538.28,
+     "realized": -41476.26,
+     "total": -111014.54
     },
     "continuous": {
      "cost": 45481.46,
-     "unrealized": -167426.09,
-     "realized": -157817.59,
-     "total": -325243.68
+     "unrealized": -134871.12,
+     "realized": -175795.7,
+     "total": -310666.82
     }
    }
   }
